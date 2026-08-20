@@ -47,7 +47,7 @@
   // cover_quiz.py의 get_dashboard_data()가 반환하는 공통 데이터 엔드포인트.
   // 퀴즈 화면(script.js)과 동일한 엔드포인트를 재사용하되, 여기서는
   // 응답에 항상 포함되는 library_options 필드만 사용합니다.
-  var DATA_ENDPOINT = "/api/media/dashboard/widgets/cover_quiz/data";
+  var DATA_ENDPOINT = "/api/media/dashboard/widgets/cover_quiz/data?list_only=1";
 
   function renderDebug(debug) {
     var box = document.getElementById("bq-target-debug");

@@ -11,13 +11,14 @@ Book Cover Quiz Plugin (id: cover_quiz)
 그대로 재사용합니다.
 
 - `get_dashboard_data(self, db_type, limit=10)`:
-    성공 {'success': True, 'items': [...], 'total': N, 'library_name': ...,
-          'library_options': [...]}
-    실패 {'success': False, 'error': '...', 'library_options': [...]}
-  library_options는 퀴즈 문제와 무관하게 "설정 화면 드롭다운을 채우기
-  위한" 전체 라이브러리 목록입니다. 성공/실패 여부와 관계없이 항상
-  포함해서, settings.html의 스크립트가 이 값만 보고 드롭다운을 채울 수
-  있게 했습니다.
+    (일반 퀴즈 요청) 성공 {'success': True, 'items': [...], 'total': N,
+    'library_name': ...} / 실패 {'success': False, 'error': '...'}
+    (요청 querystring에 list_only=1이 붙은 경우, settings.html 전용)
+    {'success': True, 'items': [], 'total': 0,
+     'library_options': [...], 'library_debug': [...]}
+  두 모드를 분리한 이유: 설정 화면은 라이브러리 드롭다운만 필요한데,
+  일반 퀴즈 생성 로직(현재 라이브러리 전체 도서 조회+셔플)까지 매번 함께
+  실행되면 설정 화면을 열 때마다 불필요하게 느려지기 때문입니다.
 - `category_tab`: 코어 좌측/상단 "카테고리" 내비게이션에 별도 메뉴 항목을
   추가합니다 (가이드 문서에는 없지만 stats_dashboard 실제 소스로 확인된
   계약: title/icon/order). index.html/script.js/style.css로 완전 커스텀
@@ -38,10 +39,10 @@ video, [[rclone-manager-plugin]](scan_scheduler) 작업에서 확인됨)를 가�
 그래서 설정값 TARGET_DB_TYPE에는 "스코프:라이브러리ID" 형식의 복합값
 (예: "general:12")을 저장합니다. 설정 화면에서는 이 값을 사람이 읽을 수
 있는 실제 라이브러리명으로 고른 뒤 저장할 수 있도록, settings.html에
-내장된 스크립트가 이 파일의 get_dashboard_data() 응답에 포함된
-library_options를 읽어와 스코프별로 그룹핑한 드롭다운을 동적으로
-채웁니다 (정적 HTML만으로는 서버마다 다른 실제 라이브러리 목록을 미리
-알 수 없기 때문입니다).
+내장된 스크립트가 이 파일의 get_dashboard_data() 응답(list_only=1
+요청)에 포함된 library_options를 읽어와 스코프별로 그룹핑한 드롭다운을
+동적으로 채웁니다 (정적 HTML만으로는 서버마다 다른 실제 라이브러리
+목록을 미리 알 수 없기 때문입니다).
 
 값이 비어 있으면 코어가 넘겨준 "현재 카테고리의 라이브러리"(db_type)를
 그대로 사용하고, library_id 필터 없이 그 스코프 전체 도서를 대상으로
@@ -171,6 +172,21 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     def _get_config(self, db_type):
         return self.get_plugin_config(db_type, default={}) or {}
 
+    def _is_list_only_request(self):
+        """설정 화면(settings.html)은 라이브러리 목록만 필요하고 문제 생성은
+        필요 없으므로, 요청 querystring에 list_only=1이 있으면 무거운 퀴즈
+        생성 로직을 완전히 건너뜁니다. Flask의 요청 컨텍스트에 접근할 수
+        없는 환경(다른 프레임워크 등)이면 False로 안전하게 폴백합니다.
+        """
+        try:
+            from flask import request as flask_request
+        except Exception:
+            return False
+        try:
+            return flask_request.args.get("list_only") in ("1", "true", "True")
+        except Exception:
+            return False
+
     def _parse_target_selection(self, cfg, fallback_db_type):
         """설정값 TARGET_DB_TYPE("스코프:라이브러리ID" 또는 빈 값)을 파싱합니다.
         반환값: (사용할 스코프, 라이브러리ID 또는 None)
@@ -283,8 +299,14 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
 
         scope_debug = {"scope": scope, "tables": self._list_tables(gateway), "tried": []}
         debug.append(scope_debug)
+        existing_tables = set(t.lower() for t in scope_debug["tables"])
 
         for table in ("libraries", "library", "media_libraries", "book_libraries"):
+            # 실제로 존재하지 않는 테이블에 SHOW COLUMNS/PRAGMA를 매번
+            # 날리면 (특히 원격 MariaDB에서) 불필요하게 느려지므로, 이미
+            # 조회한 테이블 목록에 없는 이름은 컬럼 조회 자체를 생략합니다.
+            if existing_tables and table.lower() not in existing_tables:
+                continue
             columns = self._table_columns(gateway, table)
             scope_debug["tried"].append({"table": table, "columns": columns})
             if not columns or "id" not in columns:
@@ -338,27 +360,62 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
                 )
         return options, debug
 
-    def _resolve_library_name(self, scope, library_id, library_options):
-        if library_id:
-            for opt in library_options:
-                if opt["scope"] == scope and str(opt["library_id"]) == str(library_id):
-                    return opt["name"]
-        # 개별 라이브러리를 특정하지 못한 경우, 스코프 전체를 쓰는 것이므로
-        # 식별자 자체를 표시명으로 폴백합니다.
-        return scope
+    def _get_single_library_name(self, scope, library_id):
+        """퀴즈 화면에서 헤더에 표시할 라이브러리명을, 4개 스코프 전체를
+        훑는 무거운 _list_all_libraries() 없이 선택된 라이브러리 하나만
+        가볍게 조회합니다.
+        """
+        try:
+            gateway = self.get_db_gateway(scope)
+        except Exception:
+            return None
+
+        tables = self._list_tables(gateway)
+        existing_tables = set(t.lower() for t in tables)
+
+        for table in ("libraries", "library", "media_libraries", "book_libraries"):
+            if existing_tables and table.lower() not in existing_tables:
+                continue
+            columns = self._table_columns(gateway, table)
+            if not columns or "id" not in columns:
+                continue
+            name_col = None
+            for candidate in ("name", "display_name", "library_name", "title"):
+                if candidate in columns:
+                    name_col = candidate
+                    break
+            if not name_col:
+                continue
+            try:
+                row = gateway.fetch_one(
+                    "SELECT %s AS lib_name FROM %s WHERE id = ?" % (name_col, table),
+                    (library_id,),
+                )
+            except Exception:
+                row = None
+            if row:
+                val = get_row_val(row, "lib_name")
+                if val:
+                    return str(val).strip()
+        return None
 
     # ------------------------------------------------------------------
     # 내부 구현: 퀴즈 라운드 생성
     # ------------------------------------------------------------------
     def _build_quiz(self, db_type, limit=10):
-        # settings.html의 드롭다운 채우기 스크립트도 이 응답을 사용하므로,
-        # 아래 어떤 경로로 리턴하든 항상 library_options/library_debug를 포함시킵니다.
-        library_options, library_debug = self._list_all_libraries()
-
-        def finish(result):
-            result["library_options"] = library_options
-            result["library_debug"] = library_debug
-            return result
+        # settings.html은 라이브러리 목록만 필요하고 문제 생성은 필요 없으므로
+        # (list_only=1 요청), 무거운 도서 조회/셔플 로직을 완전히 건너뜁니다.
+        # 이걸 나누지 않으면 설정 화면을 열 때마다 현재 라이브러리 전체
+        # 도서를 조회하는 무거운 쿼리가 함께 실행돼서 체감상 매우 느려집니다.
+        if self._is_list_only_request():
+            library_options, library_debug = self._list_all_libraries()
+            return {
+                "success": True,
+                "items": [],
+                "total": 0,
+                "library_options": library_options,
+                "library_debug": library_debug,
+            }
 
         cfg = self._get_config(db_type)
         target_scope, target_library_id = self._parse_target_selection(cfg, db_type)
@@ -371,14 +428,17 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             logger.exception(
                 "[cover_quiz] DB 게이트웨이 연결 실패 (target_scope=%s)", target_scope
             )
-            return finish(
-                {
-                    "success": False,
-                    "error": "지정된 라이브러리(%s)에 연결할 수 없습니다: %s" % (target_scope, exc),
-                }
-            )
+            return {
+                "success": False,
+                "error": "지정된 라이브러리(%s)에 연결할 수 없습니다: %s" % (target_scope, exc),
+            }
 
-        library_name = self._resolve_library_name(target_scope, target_library_id, library_options)
+        # 퀴즈 화면에서는 4개 스코프 전체를 훑는 무거운 _list_all_libraries()
+        # 대신, 선택된 라이브러리 하나만 가볍게 조회해서 표시 이름을 얻습니다.
+        if target_library_id:
+            library_name = self._get_single_library_name(target_scope, target_library_id) or target_scope
+        else:
+            library_name = target_scope
 
         query = (
             "SELECT id, title, cover_image FROM books "
@@ -398,7 +458,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
                 "[cover_quiz] 도서 목록 조회 실패 (target_scope=%s, library_id=%s)",
                 target_scope, target_library_id,
             )
-            return finish({"success": False, "error": "도서 목록을 가져오지 못했습니다: %s" % exc})
+            return {"success": False, "error": "도서 목록을 가져오지 못했습니다: %s" % exc}
 
         # 표지/제목이 유효하고, 제목이 중복되지 않는 도서만 문제 후보 풀에 포함.
         # (같은 제목의 책이 여러 권 있으면 오답 선택지끼리 겹쳐서 문제가
@@ -422,16 +482,14 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
 
         min_required = max(choice_count, MIN_POOL_SIZE_FLOOR)
         if len(pool) < min_required:
-            return finish(
-                {
-                    "success": False,
-                    "error": (
-                        "표지가 등록된 도서가 부족합니다 (현재 %d권, 선택지 %d개를 위해 "
-                        "최소 %d권 필요). 라이브러리 설정이나 표지 등록 상태를 확인해주세요."
-                    )
-                    % (len(pool), choice_count, min_required),
-                }
-            )
+            return {
+                "success": False,
+                "error": (
+                    "표지가 등록된 도서가 부족합니다 (현재 %d권, 선택지 %d개를 위해 "
+                    "최소 %d권 필요). 라이브러리 설정이나 표지 등록 상태를 확인해주세요."
+                )
+                % (len(pool), choice_count, min_required),
+            }
 
         random.shuffle(pool)
         question_source = pool[: min(question_count, len(pool))]
@@ -456,11 +514,9 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
                 }
             )
 
-        return finish(
-            {
-                "success": True,
-                "items": questions,
-                "total": len(questions),
-                "library_name": library_name,
-            }
-        )
+        return {
+            "success": True,
+            "items": questions,
+            "total": len(questions),
+            "library_name": library_name,
+        }
