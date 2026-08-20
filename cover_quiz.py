@@ -84,7 +84,7 @@ MIN_POOL_SIZE_FLOOR = 2
 # 비워두면(또는 아직 설정을 저장한 적이 없으면) 이 값을 사용합니다.
 DEFAULT_APPS_SCRIPT_URL = (
     "https://script.google.com/macros/s/"
-    "AKfycbyTG6ul8pSNyhn3zDoQTyBUFJX_b4MyVwanVBsFe67TdnssqjRl17keAEU5N5lf2QJtgg/exec"
+    "AKfycbzpVeU94Xafkd6fSRd6yP20qj53iltfKMQXH8f2lTBGFSiP8l50FWRRg6qzr_jjXwx1/exec"
 )
 
 # BookOasis의 고정 DB 스코프 식별자 4종 (scan_scheduler 플러그인 개발 시 확인됨).
@@ -147,7 +147,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             "label": "리더보드용 Google Apps Script 웹 앱 URL (비우면 리더보드 기능 비활성화)",
             "type": "text",
             "required": False,
-            "default": "https://script.google.com/macros/s/AKfycbyTG6ul8pSNyhn3zDoQTyBUFJX_b4MyVwanVBsFe67TdnssqjRl17keAEU5N5lf2QJtgg/exec",
+            "default": "https://script.google.com/macros/s/AKfycbzpVeU94Xafkd6fSRd6yP20qj53iltfKMQXH8f2lTBGFSiP8l50FWRRg6qzr_jjXwx1/exec",
         },
     ]
 

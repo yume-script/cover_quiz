@@ -242,7 +242,11 @@
       })
       .catch(function (err) {
         els.saveScoreBtn.disabled = false;
-        els.saveStatus.textContent = "저장 실패: " + err;
+        var msg = String(err);
+        if (msg.indexOf("Failed to fetch") !== -1) {
+          msg = "네트워크 요청이 막혔습니다. Apps Script 배포의 \"액세스 권한\"이 \"전체\"인지, 광고 차단 확장 프로그램이 script.google.com을 막고 있지 않은지 확인해주세요.";
+        }
+        els.saveStatus.textContent = "저장 실패: " + msg;
       });
   }
 
@@ -277,7 +281,8 @@
         });
         els.leaderboardBox.style.display = "block";
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.warn("[cover_quiz] 리더보드 조회 실패:", err);
         els.leaderboardBox.style.display = "none";
       });
   }

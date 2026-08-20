@@ -5,18 +5,28 @@
  * ----------
  * 1. 새 Google 스프레드시트를 만듭니다 (시트 이름은 무엇이든 상관없습니다.
  *    이 스크립트가 "leaderboard"라는 이름의 시트를 자동으로 만들어 씁니다).
- * 2. 상단 메뉴에서 확장 프로그램 > Apps Script 를 엽니다.
- * 3. 기본 생성된 코드를 모두 지우고 이 파일의 내용 전체를 붙여넣습니다.
- * 4. 우측 상단 "배포" > "새 배포"를 클릭합니다.
+ * 2. 주소창 URL에서 스프레드시트 ID를 복사합니다.
+ *    https://docs.google.com/spreadsheets/d/여기가ID/edit
+ * 3. 아래 SPREADSHEET_ID 상수에 그 ID를 붙여넣습니다.
+ * 4. 상단 메뉴에서 확장 프로그램 > Apps Script 를 엽니다.
+ * 5. 기본 생성된 코드를 모두 지우고 이 파일의 내용 전체(ID를 채운 상태로)를 붙여넣습니다.
+ * 6. 우측 상단 "배포" > "새 배포"를 클릭합니다.
  *    - 유형: 웹 앱
  *    - 실행 계정: 나
  *    - 액세스 권한이 있는 사용자: 전체(익명 사용자도 가능)
- * 5. 배포 후 나오는 웹 앱 URL(".../exec"로 끝남)을 복사합니다.
- * 6. BookOasis "책표지 퀴즈" 플러그인 설정의 APPS_SCRIPT_URL 값에
+ * 7. 배포 후 나오는 웹 앱 URL(".../exec"로 끝남)을 복사합니다.
+ * 8. BookOasis "책표지 퀴즈" 플러그인 설정의 APPS_SCRIPT_URL 값에
  *    이 URL을 붙여넣고 저장합니다.
  *
  * 스프레드시트 "leaderboard" 시트 컬럼: timestamp, name, library, score, total
+ *
+ * 참고: SpreadsheetApp.getActiveSpreadsheet()는 스크립트가 시트에 바인딩되어
+ * 있지 않거나 웹 앱으로 실행될 때(= "활성" 시트 개념이 없는 컨텍스트)는
+ * null을 반환할 수 있어, ID로 직접 여는 openById() 방식을 사용합니다.
  */
+
+// 사용하실 스프레드시트의 ID를 여기 큰따옴표 안에 붙여넣으세요.
+var SPREADSHEET_ID = "여기에_스프레드시트_ID를_붙여넣으세요";
 
 function doGet(e) {
   try {
@@ -102,7 +112,13 @@ function saveScore_(payload) {
 }
 
 function getSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!SPREADSHEET_ID || SPREADSHEET_ID.indexOf("여기에") !== -1) {
+    throw new Error(
+      "SPREADSHEET_ID가 설정되지 않았습니다. 스크립트 상단의 SPREADSHEET_ID에 " +
+      "스프레드시트 URL의 d/와 /edit 사이 ID를 붙여넣고 다시 배포하세요."
+    );
+  }
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName("leaderboard");
   if (!sheet) {
     sheet = ss.insertSheet("leaderboard");
