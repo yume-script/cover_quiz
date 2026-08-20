@@ -174,7 +174,8 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     category_tab = {
         "title": "책표지 퀴즈",
         "icon": "fa-solid fa-image-portrait",
-        "order": 92,
+        "order": 59,
+        "sessions": ["adult"],  # 선택 사항. 아래 "노출 세션 지정" 참고
     }
 
     # ------------------------------------------------------------------
