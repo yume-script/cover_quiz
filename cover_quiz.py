@@ -63,6 +63,7 @@ video, [[rclone-manager-plugin]](scan_scheduler) 작업에서 확인됨)를 가�
 
 import logging
 import random
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from plugins.metadata.base import BaseMetadataProvider
 
@@ -78,6 +79,13 @@ MIN_POOL_SIZE_FLOOR = 2
 # 이 스코프들 "하단"에 있는 개별 라이브러리 목록은 매번 DB에서 직접 조회합니다
 # (서버마다 실제로 어떤 라이브러리가 있는지 다르기 때문에 하드코딩할 수 없음).
 KNOWN_LIBRARY_SCOPES = ["general", "adult", "audiobook", "video"]
+
+# 스코프 하나(get_db_gateway 연결 + 테이블/컬럼 조회)를 조사하는 데 허용할
+# 최대 시간(초). 존재하지 않거나 응답이 없는 스코프 때문에 설정 화면
+# 전체가 무한정 멈추는 것을 막기 위한 안전장치입니다. 4개 스코프는
+# ThreadPoolExecutor로 병렬 조회하므로, 전체 소요 시간은 대략 이 값과
+# 비슷한 수준으로 제한됩니다(직렬로 4배가 되지 않음).
+SCOPE_TIMEOUT_SEC = 5
 
 
 def get_row_val(row, key, default=None):
@@ -341,23 +349,57 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
 
     def _list_all_libraries(self):
         """설정 화면 드롭다운에 사용할 전체 (스코프, 라이브러리) 목록을
-        4개 고정 스코프 전체에서 수집합니다. 스코프 하나가 실패해도
-        나머지는 계속 진행합니다. 두 번째 반환값은 진단 정보입니다
-        (settings.html에서 실패 원인을 바로 확인할 수 있도록 응답에
-        그대로 포함시킵니다).
+        4개 고정 스코프 전체에서 수집합니다. 스코프들을 병렬로 조회하고
+        스코프 하나당 SCOPE_TIMEOUT_SEC 이상 걸리면 그 스코프는 건너뛰어서,
+        일부 스코프가 존재하지 않거나 응답이 없어도 전체 조회가 무한정
+        멈추지 않도록 합니다.
         """
         options = []
         debug = []
-        for scope in KNOWN_LIBRARY_SCOPES:
-            for lib in self._list_libraries_in_scope(scope, debug):
-                options.append(
-                    {
-                        "value": "%s:%s" % (scope, lib["library_id"]),
-                        "scope": scope,
-                        "library_id": lib["library_id"],
-                        "name": lib["name"],
-                    }
-                )
+
+        def worker(scope):
+            scope_debug = []
+            libs = self._list_libraries_in_scope(scope, scope_debug)
+            return libs, scope_debug
+
+        # 주의: ThreadPoolExecutor를 `with`로 감싸면 __exit__에서
+        # shutdown(wait=True)가 호출되어 아직 안 끝난(타임아웃 처리한)
+        # 스레드까지 전부 끝날 때까지 블로킹됩니다. 그러면 개별 future에
+        # 걸어둔 타임아웃이 무의미해지므로, 여기서는 의도적으로 `with`를
+        # 쓰지 않고 shutdown(wait=False)로 응답을 즉시 돌려줍니다(지연
+        # 중인 스레드는 백그라운드에서 알아서 끝나거나 소켓 타임아웃으로
+        # 종료됩니다).
+        executor = ThreadPoolExecutor(max_workers=len(KNOWN_LIBRARY_SCOPES))
+        try:
+            futures = {executor.submit(worker, scope): scope for scope in KNOWN_LIBRARY_SCOPES}
+            for future in futures:
+                scope = futures[future]
+                try:
+                    libs, scope_debug = future.result(timeout=SCOPE_TIMEOUT_SEC)
+                except FutureTimeoutError:
+                    debug.append(
+                        {
+                            "scope": scope,
+                            "error": "%d초 내에 응답이 없어 건너뜀 (해당 스코프 DB 연결/쿼리 지연)"
+                            % SCOPE_TIMEOUT_SEC,
+                        }
+                    )
+                    continue
+                except Exception as exc:
+                    debug.append({"scope": scope, "error": "조회 실패: %s" % exc})
+                    continue
+                debug.extend(scope_debug)
+                for lib in libs:
+                    options.append(
+                        {
+                            "value": "%s:%s" % (scope, lib["library_id"]),
+                            "scope": scope,
+                            "library_id": lib["library_id"],
+                            "name": lib["name"],
+                        }
+                    )
+        finally:
+            executor.shutdown(wait=False)
         return options, debug
 
     def _get_single_library_name(self, scope, library_id):
@@ -440,6 +482,13 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         else:
             library_name = target_scope
 
+        # LIMIT을 걸어두는 이유: list_only 감지(Flask request 컨텍스트 의존)가
+        # 어떤 이유로든 동작하지 않아 이 무거운 경로를 타게 되더라도, 라이브러리
+        # 전체 도서 수와 무관하게 조회 자체가 빠르게 끝나도록 상한을 둡니다.
+        # 문제 풀(pool)은 표지/제목 중복 필터링 후 question_count만큼만 쓰이므로
+        # 3000권이면 사실상 모든 실사용 시나리오에서 충분합니다.
+        # (LIMIT은 반드시 WHERE 절 뒤, 마지막에 와야 하므로 library_id 조건을
+        # 먼저 조립한 뒤 맨 마지막에 LIMIT을 붙입니다.)
         query = (
             "SELECT id, title, cover_image FROM books "
             "WHERE COALESCE(is_deleted, 0) = 0 "
@@ -450,6 +499,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         if target_library_id:
             query += " AND library_id = ?"
             params = (target_library_id,)
+        query += " LIMIT 3000"
 
         try:
             rows = gateway.fetch_all(query, params) if params else gateway.fetch_all(query)

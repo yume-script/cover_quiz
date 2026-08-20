@@ -73,8 +73,27 @@
     // 대비해, 옵션을 새로 채우기 전에 현재 값을 기억해뒀다가 복원합니다.
     var previousValue = select.value;
 
-    fetch(DATA_ENDPOINT, { credentials: "same-origin" })
-      .then(function (res) { return res.json(); })
+    // 서버가 아예 응답을 못 주는 상황(스코프 DB 연결이 물고 늘어지는 등)에도
+    // 화면이 "불러오는 중..."에 무한정 멈춰있지 않도록 10초 타임아웃을 겁니다.
+    // 서버 쪽도 스코프별 5초 타임아웃을 걸어두었지만, 이중 방어 차원입니다.
+    var controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    var timeoutId = null;
+    if (controller) {
+      timeoutId = setTimeout(function () {
+        controller.abort();
+      }, 10000);
+    }
+
+    fetch(DATA_ENDPOINT, {
+      credentials: "same-origin",
+      signal: controller ? controller.signal : undefined,
+    })
+      .then(function (res) {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        return res.json();
+      })
       .then(function (data) {
         var options = (data && data.library_options) || [];
         if (!options.length) {
@@ -116,9 +135,16 @@
           hint.textContent = "특정 라이브러리의 표지만 계속 사용하고 싶을 때 선택하세요. \"(현재 카테고리의 라이브러리 사용)\"을 선택하면 카테고리 메뉴를 열었을 때의 현재 라이브러리를 사용합니다.";
         }
       })
-      .catch(function () {
+      .catch(function (err) {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
         if (hint) {
-          hint.textContent = "라이브러리 목록을 불러오지 못했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다.";
+          if (err && err.name === "AbortError") {
+            hint.textContent = "라이브러리 목록 조회가 10초 안에 끝나지 않아 중단했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다. 서버 로그에서 [cover_quiz] 태그를 확인해주세요.";
+          } else {
+            hint.textContent = "라이브러리 목록을 불러오지 못했습니다 (" + err + "). \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다.";
+          }
         }
       });
   }
