@@ -147,6 +147,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         "title": "책표지 퀴즈",
         "icon": "fa-solid fa-image-portrait",
         "order": 92,
+        "sessions": ["adult"],  # 선택 사항. 아래 "노출 세션 지정" 참고
     }
 
     # ------------------------------------------------------------------
