@@ -36,6 +36,20 @@
     <i class="fa-solid fa-trophy bq-result-icon"></i>
     <div class="bq-result-title">라운드 완료!</div>
     <div class="bq-result-score" id="bq-result-score">0 / 0</div>
+
+    <div class="bq-save-score" id="bq-save-score" style="display:none;">
+      <input type="text" id="bq-player-name" class="bq-name-input" placeholder="닉네임 (선택, 최대 20자)" maxlength="20" />
+      <button class="bq-btn bq-btn-primary" id="bq-save-score-btn">
+        <i class="fa-solid fa-floppy-disk"></i> 기록 저장
+      </button>
+      <span class="bq-save-status" id="bq-save-status"></span>
+    </div>
+
+    <div class="bq-leaderboard" id="bq-leaderboard" style="display:none;">
+      <div class="bq-leaderboard-title"><i class="fa-solid fa-ranking-star"></i> 이 라이브러리 순위표</div>
+      <ol class="bq-leaderboard-list" id="bq-leaderboard-list"></ol>
+    </div>
+
     <button class="bq-btn bq-btn-primary" id="bq-restart-btn">
       <i class="fa-solid fa-rotate-right"></i> 다시 시작
     </button>

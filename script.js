@@ -10,6 +10,9 @@
     currentIndex: 0,
     correctCount: 0,
     answered: false,
+    appsScriptUrl: "",
+    libraryName: "",
+    scoreSaved: false,
   };
 
   var els = {};
@@ -32,6 +35,12 @@
     els.progressFill = qs("bq-progress-fill");
     els.progressText = qs("bq-progress-text");
     els.resultScore = qs("bq-result-score");
+    els.saveScoreBox = qs("bq-save-score");
+    els.playerNameInput = qs("bq-player-name");
+    els.saveScoreBtn = qs("bq-save-score-btn");
+    els.saveStatus = qs("bq-save-status");
+    els.leaderboardBox = qs("bq-leaderboard");
+    els.leaderboardList = qs("bq-leaderboard-list");
   }
 
   function showStatus(message) {
@@ -70,6 +79,9 @@
         state.questions = data.items;
         state.currentIndex = 0;
         state.correctCount = 0;
+        state.appsScriptUrl = data.apps_script_url || "";
+        state.libraryName = data.library_name || "";
+        state.scoreSaved = false;
         if (data.library_name) {
           els.subtitle.textContent = "[" + data.library_name + "] 표지 이미지를 보고 책 제목을 맞혀보세요.";
         }
@@ -169,12 +181,112 @@
     els.quizArea.style.display = "none";
     els.result.style.display = "flex";
     els.resultScore.textContent = state.correctCount + " / " + state.questions.length;
+
+    if (!state.appsScriptUrl) {
+      els.saveScoreBox.style.display = "none";
+      els.leaderboardBox.style.display = "none";
+      return;
+    }
+
+    els.saveScoreBox.style.display = "flex";
+    els.saveScoreBtn.disabled = false;
+    els.saveScoreBtn.innerHTML = "";
+    var saveIcon = document.createElement("i");
+    saveIcon.className = "fa-solid fa-floppy-disk";
+    els.saveScoreBtn.appendChild(saveIcon);
+    els.saveScoreBtn.appendChild(document.createTextNode(" 기록 저장"));
+    els.saveStatus.textContent = "";
+
+    loadLeaderboard();
+  }
+
+  function saveScore() {
+    if (!state.appsScriptUrl || state.scoreSaved) {
+      return;
+    }
+    els.saveScoreBtn.disabled = true;
+    els.saveStatus.textContent = "저장 중...";
+
+    var name = (els.playerNameInput.value || "").trim() || "익명";
+    var payload = {
+      name: name,
+      library: state.libraryName,
+      score: state.correctCount,
+      total: state.questions.length,
+    };
+
+    // Apps Script 웹 앱은 Content-Type이 application/json이면 브라우저가
+    // 먼저 OPTIONS(preflight) 요청을 보내는데, Apps Script는 이를 제대로
+    // 처리하지 못해 실패하는 경우가 많습니다. text/plain으로 보내고
+    // Apps Script 쪽에서 JSON.parse로 직접 해석하면 preflight 없이 동작합니다.
+    fetch(state.appsScriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && data.success) {
+          state.scoreSaved = true;
+          els.saveStatus.textContent = "저장되었습니다!";
+          els.saveScoreBtn.innerHTML = "";
+          var icon = document.createElement("i");
+          icon.className = "fa-solid fa-check";
+          els.saveScoreBtn.appendChild(icon);
+          els.saveScoreBtn.appendChild(document.createTextNode(" 저장됨"));
+          loadLeaderboard();
+        } else {
+          els.saveScoreBtn.disabled = false;
+          els.saveStatus.textContent = "저장 실패: " + ((data && data.error) || "알 수 없는 오류");
+        }
+      })
+      .catch(function (err) {
+        els.saveScoreBtn.disabled = false;
+        els.saveStatus.textContent = "저장 실패: " + err;
+      });
+  }
+
+  function loadLeaderboard() {
+    if (!state.appsScriptUrl) {
+      return;
+    }
+    var url = state.appsScriptUrl
+      + (state.appsScriptUrl.indexOf("?") === -1 ? "?" : "&")
+      + "action=leaderboard&limit=10&library=" + encodeURIComponent(state.libraryName || "");
+
+    fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var items = (data && data.success && Array.isArray(data.items)) ? data.items : [];
+        els.leaderboardList.innerHTML = "";
+        if (!items.length) {
+          els.leaderboardBox.style.display = "none";
+          return;
+        }
+        items.forEach(function (item) {
+          var li = document.createElement("li");
+          var nameSpan = document.createElement("span");
+          nameSpan.className = "bq-leaderboard-name";
+          nameSpan.textContent = item.name || "익명";
+          var scoreSpan = document.createElement("span");
+          scoreSpan.className = "bq-leaderboard-score";
+          scoreSpan.textContent = item.score + " / " + item.total;
+          li.appendChild(nameSpan);
+          li.appendChild(scoreSpan);
+          els.leaderboardList.appendChild(li);
+        });
+        els.leaderboardBox.style.display = "block";
+      })
+      .catch(function () {
+        els.leaderboardBox.style.display = "none";
+      });
   }
 
   function init() {
     cacheEls();
     els.nextBtn.addEventListener("click", onNextClick);
     els.restartBtn.addEventListener("click", loadQuiz);
+    els.saveScoreBtn.addEventListener("click", saveScore);
     loadQuiz();
   }
 

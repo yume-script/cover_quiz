@@ -209,3 +209,73 @@
   font-weight: 800;
   margin-bottom: 8px;
 }
+
+.bq-save-score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.bq-name-input {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  width: 180px;
+  max-width: 60vw;
+}
+
+.bq-save-status {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.bq-leaderboard {
+  width: 100%;
+  max-width: 320px;
+  margin-top: 6px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.1);
+  border: 1px solid rgba(127, 127, 127, 0.25);
+}
+
+.bq-leaderboard-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bq-leaderboard-list {
+  list-style: decimal;
+  padding-left: 20px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bq-leaderboard-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.bq-leaderboard-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bq-leaderboard-score {
+  font-weight: 700;
+  white-space: nowrap;
+}

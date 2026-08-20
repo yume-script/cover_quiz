@@ -12,13 +12,18 @@ Book Cover Quiz Plugin (id: cover_quiz)
 
 - `get_dashboard_data(self, db_type, limit=10)`:
     (일반 퀴즈 요청) 성공 {'success': True, 'items': [...], 'total': N,
-    'library_name': ...} / 실패 {'success': False, 'error': '...'}
+    'library_name': ..., 'apps_script_url': ...} / 실패
+    {'success': False, 'error': '...'}
     (요청 querystring에 list_only=1이 붙은 경우, settings.html 전용)
     {'success': True, 'items': [], 'total': 0,
      'library_options': [...], 'library_debug': [...]}
   두 모드를 분리한 이유: 설정 화면은 라이브러리 드롭다운만 필요한데,
   일반 퀴즈 생성 로직(현재 라이브러리 전체 도서 조회+셔플)까지 매번 함께
   실행되면 설정 화면을 열 때마다 불필요하게 느려지기 때문입니다.
+  apps_script_url은 리더보드(최고 점수 기록) 기능을 위한 Google Apps
+  Script 웹 앱 URL로, 설정에 값이 있으면 프론트엔드(script.js)가 라운드
+  종료 후 이 URL로 직접(브라우저에서) 점수를 저장/조회합니다. 값이
+  비어있으면 script.js가 리더보드 UI 자체를 표시하지 않습니다.
 - `category_tab`: 코어 좌측/상단 "카테고리" 내비게이션에 별도 메뉴 항목을
   추가합니다 (가이드 문서에는 없지만 stats_dashboard 실제 소스로 확인된
   계약: title/icon/order). index.html/script.js/style.css로 완전 커스텀
@@ -75,6 +80,13 @@ COVER_URL_PREFIX = "/covers/"
 # 정답 이미지 등록 도서가 이 개수 미만이면(오답 후보 확보 불가) 퀴즈를 시작할 수 없습니다.
 MIN_POOL_SIZE_FLOOR = 2
 
+# 리더보드 기능의 기본 Google Apps Script 웹 앱 URL. 플러그인 설정에서
+# 비워두면(또는 아직 설정을 저장한 적이 없으면) 이 값을 사용합니다.
+DEFAULT_APPS_SCRIPT_URL = (
+    "https://script.google.com/macros/s/"
+    "AKfycbyTG6ul8pSNyhn3zDoQTyBUFJX_b4MyVwanVBsFe67TdnssqjRl17keAEU5N5lf2QJtgg/exec"
+)
+
 # BookOasis의 고정 DB 스코프 식별자 4종 (scan_scheduler 플러그인 개발 시 확인됨).
 # 이 스코프들 "하단"에 있는 개별 라이브러리 목록은 매번 DB에서 직접 조회합니다
 # (서버마다 실제로 어떤 라이브러리가 있는지 다르기 때문에 하드코딩할 수 없음).
@@ -130,6 +142,13 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             "required": False,
             "default": 4,
         },
+        {
+            "key": "APPS_SCRIPT_URL",
+            "label": "리더보드용 Google Apps Script 웹 앱 URL (비우면 리더보드 기능 비활성화)",
+            "type": "text",
+            "required": False,
+            "default": "https://script.google.com/macros/s/AKfycbyTG6ul8pSNyhn3zDoQTyBUFJX_b4MyVwanVBsFe67TdnssqjRl17keAEU5N5lf2QJtgg/exec",
+        },
     ]
 
     # 자동 업데이트를 사용하려면 raw_base_url을 실제 리포지토리 경로로 수정하고
@@ -141,7 +160,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         "files": [
             "README.md", "VERSION", "__init__.py", "cover_quiz.py",
             "index.html", "script.js", "style.css",
-            "settings.html", "settings.css",
+            "settings.html", "settings.css", "apps_script.gs",
         ],
         "version_file": "VERSION",
         "version_key": "plugin version",
@@ -155,8 +174,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     category_tab = {
         "title": "책표지 퀴즈",
         "icon": "fa-solid fa-image-portrait",
-        "order": 55,
-        "sessions": ["adult"],  # 선택 사항. 아래 "노출 세션 지정" 참고
+        "order": 92,
     }
 
     # ------------------------------------------------------------------
@@ -464,6 +482,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         target_scope, target_library_id = self._parse_target_selection(cfg, db_type)
         question_count = self._get_questions_count(cfg, limit)
         choice_count = self._get_choices_count(cfg)
+        apps_script_url = (cfg.get("APPS_SCRIPT_URL") or DEFAULT_APPS_SCRIPT_URL).strip()
 
         try:
             gateway = self.get_db_gateway(target_scope)
@@ -570,4 +589,5 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             "items": questions,
             "total": len(questions),
             "library_name": library_name,
+            "apps_script_url": apps_script_url,
         }
