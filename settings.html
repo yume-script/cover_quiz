@@ -14,6 +14,7 @@
             <option value="">(현재 카테고리의 라이브러리 사용)</option>
           </select>
           <p class="hint" id="bq-target-hint">라이브러리 목록을 불러오는 중...</p>
+          <pre id="bq-target-debug" class="bq-debug-box" style="display:none;"></pre>
         </div>
       </div>
 
@@ -48,6 +49,19 @@
   // 응답에 항상 포함되는 library_options 필드만 사용합니다.
   var DATA_ENDPOINT = "/api/media/dashboard/widgets/cover_quiz/data";
 
+  function renderDebug(debug) {
+    var box = document.getElementById("bq-target-debug");
+    if (!box) {
+      return;
+    }
+    if (!debug || !debug.length) {
+      box.style.display = "none";
+      return;
+    }
+    box.style.display = "block";
+    box.textContent = JSON.stringify(debug, null, 2);
+  }
+
   function init() {
     var select = document.getElementById("bq-target-db-type");
     var hint = document.getElementById("bq-target-hint");
@@ -65,8 +79,9 @@
         var options = (data && data.library_options) || [];
         if (!options.length) {
           if (hint) {
-            hint.textContent = "라이브러리 목록을 찾지 못했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다.";
+            hint.textContent = "라이브러리 목록을 찾지 못했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다. 아래 진단 정보를 개발자에게 전달해주세요.";
           }
+          renderDebug(data && data.library_debug);
           return;
         }
 

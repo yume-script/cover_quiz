@@ -233,19 +233,60 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             pass
         return []
 
-    def _list_libraries_in_scope(self, scope):
+    def _list_tables(self, gateway):
+        """진단용: 이 DB 스코프에 실제로 어떤 테이블이 있는지 조회합니다.
+        MariaDB(SHOW TABLES)와 SQLite(sqlite_master) 양쪽을 방어적으로
+        시도합니다. 정확한 라이브러리 테이블명을 모를 때 이 목록으로
+        후보를 좁힙니다.
+        """
+        try:
+            rows = gateway.fetch_all("SHOW TABLES")
+            if rows:
+                names = []
+                for row in rows:
+                    try:
+                        # SHOW TABLES 결과는 컬럼명이 DB명에 따라 달라지므로
+                        # dict/tuple 양쪽 다 방어적으로 처리
+                        if hasattr(row, "values"):
+                            names.append(str(list(row.values())[0]))
+                        else:
+                            names.append(str(row[0]))
+                    except Exception:
+                        continue
+                if names:
+                    return names
+        except Exception:
+            pass
+        try:
+            rows = gateway.fetch_all(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+            if rows:
+                return [str(get_row_val(row, "name")) for row in rows if get_row_val(row, "name")]
+        except Exception:
+            pass
+        return []
+
+    def _list_libraries_in_scope(self, scope, debug):
         """지정된 스코프의 DB에 연결해서 그 안에 있는 개별 라이브러리
         (id, 실제 이름) 목록을 조회합니다. 정확한 스키마(테이블/컬럼명)를
         알 수 없으므로 흔히 쓰이는 테이블/컬럼 조합을 순서대로 방어적으로
-        시도합니다. 실패하면 빈 리스트를 반환합니다.
+        시도합니다. 실패하면 빈 리스트를 반환하고, debug 리스트에 이
+        스코프에서 실제로 발견된 테이블 목록/시도한 테이블별 컬럼을
+        기록해서 원인 파악에 사용합니다.
         """
         try:
             gateway = self.get_db_gateway(scope)
-        except Exception:
+        except Exception as exc:
+            debug.append({"scope": scope, "error": "게이트웨이 연결 실패: %s" % exc})
             return []
 
-        for table in ("libraries", "library"):
+        scope_debug = {"scope": scope, "tables": self._list_tables(gateway), "tried": []}
+        debug.append(scope_debug)
+
+        for table in ("libraries", "library", "media_libraries", "book_libraries"):
             columns = self._table_columns(gateway, table)
+            scope_debug["tried"].append({"table": table, "columns": columns})
             if not columns or "id" not in columns:
                 continue
             name_col = None
@@ -279,11 +320,14 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     def _list_all_libraries(self):
         """설정 화면 드롭다운에 사용할 전체 (스코프, 라이브러리) 목록을
         4개 고정 스코프 전체에서 수집합니다. 스코프 하나가 실패해도
-        나머지는 계속 진행합니다.
+        나머지는 계속 진행합니다. 두 번째 반환값은 진단 정보입니다
+        (settings.html에서 실패 원인을 바로 확인할 수 있도록 응답에
+        그대로 포함시킵니다).
         """
         options = []
+        debug = []
         for scope in KNOWN_LIBRARY_SCOPES:
-            for lib in self._list_libraries_in_scope(scope):
+            for lib in self._list_libraries_in_scope(scope, debug):
                 options.append(
                     {
                         "value": "%s:%s" % (scope, lib["library_id"]),
@@ -292,7 +336,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
                         "name": lib["name"],
                     }
                 )
-        return options
+        return options, debug
 
     def _resolve_library_name(self, scope, library_id, library_options):
         if library_id:
@@ -308,11 +352,12 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     # ------------------------------------------------------------------
     def _build_quiz(self, db_type, limit=10):
         # settings.html의 드롭다운 채우기 스크립트도 이 응답을 사용하므로,
-        # 아래 어떤 경로로 리턴하든 항상 library_options를 포함시킵니다.
-        library_options = self._list_all_libraries()
+        # 아래 어떤 경로로 리턴하든 항상 library_options/library_debug를 포함시킵니다.
+        library_options, library_debug = self._list_all_libraries()
 
         def finish(result):
             result["library_options"] = library_options
+            result["library_debug"] = library_debug
             return result
 
         cfg = self._get_config(db_type)
