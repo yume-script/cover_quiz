@@ -1,0 +1,43 @@
+<div class="bq-plugin-container">
+  <div class="bq-header-banner">
+    <div class="bq-title-group">
+      <h2><i class="fa-solid fa-image-portrait"></i> 책표지 퀴즈</h2>
+      <p class="bq-subtitle" id="bq-subtitle">표지 이미지를 보고 책 제목을 맞혀보세요.</p>
+    </div>
+    <div class="bq-score-group">
+      <span class="bq-score-label">점수</span>
+      <span class="bq-score" id="bq-score">0 / 0</span>
+    </div>
+  </div>
+
+  <div class="bq-progress-row">
+    <div class="bq-progress-track">
+      <div class="bq-progress-fill" id="bq-progress-fill"></div>
+    </div>
+    <span class="bq-progress-text" id="bq-progress-text">문제를 불러오는 중...</span>
+  </div>
+
+  <div class="bq-status" id="bq-status" style="display:none;"></div>
+
+  <div class="bq-quiz-area" id="bq-quiz-area" style="display:none;">
+    <div class="bq-cover-wrap">
+      <img id="bq-cover-img" class="bq-cover-img" src="" alt="표지 이미지" />
+    </div>
+    <div class="bq-choices" id="bq-choices"></div>
+    <div class="bq-feedback" id="bq-feedback" style="display:none;"></div>
+    <div class="bq-actions">
+      <button class="bq-btn bq-btn-primary" id="bq-next-btn" style="display:none;">
+        다음 문제 <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="bq-result" id="bq-result" style="display:none;">
+    <i class="fa-solid fa-trophy bq-result-icon"></i>
+    <div class="bq-result-title">라운드 완료!</div>
+    <div class="bq-result-score" id="bq-result-score">0 / 0</div>
+    <button class="bq-btn bq-btn-primary" id="bq-restart-btn">
+      <i class="fa-solid fa-rotate-right"></i> 다시 시작
+    </button>
+  </div>
+</div>

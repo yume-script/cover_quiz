@@ -1,0 +1,117 @@
+<div class="bq-settings-panel">
+  <div class="bq-settings-title">책표지 퀴즈 설정</div>
+  <div class="bq-settings-desc">표지 이미지를 보고 책 제목을 맞히는 객관식 퀴즈 게임 설정입니다.</div>
+
+  <details class="bq-settings-section">
+    <summary>설정 펼치기 (클릭)</summary>
+    <div class="bq-settings-body">
+
+      <!-- 대상 라이브러리 -->
+      <div class="bq-settings-field">
+        <label for="bq-target-db-type">퀴즈에 사용할 라이브러리</label>
+        <div class="bq-input-container">
+          <select id="bq-target-db-type" name="TARGET_DB_TYPE">
+            <option value="">(현재 카테고리의 라이브러리 사용)</option>
+          </select>
+          <p class="hint" id="bq-target-hint">라이브러리 목록을 불러오는 중...</p>
+        </div>
+      </div>
+
+      <!-- 문제 수 -->
+      <div class="bq-settings-field">
+        <label for="bq-questions-per-round">한 라운드 문제 수</label>
+        <div class="bq-input-container">
+          <input id="bq-questions-per-round" type="number" name="QUESTIONS_PER_ROUND" min="1" max="50" placeholder="10" />
+          <p class="hint">한 번 시작할 때 출제할 문제 개수입니다.</p>
+        </div>
+      </div>
+
+      <!-- 선택지 개수 -->
+      <div class="bq-settings-field">
+        <label for="bq-choices-count">선택지 개수 (정답 1개 포함)</label>
+        <div class="bq-input-container">
+          <input id="bq-choices-count" type="number" name="CHOICES_COUNT" min="2" max="6" placeholder="4" />
+          <p class="hint">객관식 선택지 총 개수입니다. 예: 4로 설정하면 정답 1개 + 오답 3개.</p>
+        </div>
+      </div>
+
+    </div>
+  </details>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // cover_quiz.py의 get_dashboard_data()가 반환하는 공통 데이터 엔드포인트.
+  // 퀴즈 화면(script.js)과 동일한 엔드포인트를 재사용하되, 여기서는
+  // 응답에 항상 포함되는 library_options 필드만 사용합니다.
+  var DATA_ENDPOINT = "/api/media/dashboard/widgets/cover_quiz/data";
+
+  function init() {
+    var select = document.getElementById("bq-target-db-type");
+    var hint = document.getElementById("bq-target-hint");
+    if (!select) {
+      return;
+    }
+
+    // 코어가 페이지 로드시 저장된 값을 select.value로 미리 채워둔 경우를
+    // 대비해, 옵션을 새로 채우기 전에 현재 값을 기억해뒀다가 복원합니다.
+    var previousValue = select.value;
+
+    fetch(DATA_ENDPOINT, { credentials: "same-origin" })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var options = (data && data.library_options) || [];
+        if (!options.length) {
+          if (hint) {
+            hint.textContent = "라이브러리 목록을 찾지 못했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다.";
+          }
+          return;
+        }
+
+        var groups = {};
+        var order = [];
+        options.forEach(function (opt) {
+          var scope = opt.scope || "기타";
+          if (!groups[scope]) {
+            groups[scope] = [];
+            order.push(scope);
+          }
+          groups[scope].push(opt);
+        });
+
+        order.forEach(function (scope) {
+          var optgroup = document.createElement("optgroup");
+          optgroup.label = scope;
+          groups[scope].forEach(function (opt) {
+            var el = document.createElement("option");
+            el.value = opt.value;
+            el.textContent = opt.name;
+            optgroup.appendChild(el);
+          });
+          select.appendChild(optgroup);
+        });
+
+        if (previousValue) {
+          select.value = previousValue;
+        }
+
+        if (hint) {
+          hint.textContent = "특정 라이브러리의 표지만 계속 사용하고 싶을 때 선택하세요. \"(현재 카테고리의 라이브러리 사용)\"을 선택하면 카테고리 메뉴를 열었을 때의 현재 라이브러리를 사용합니다.";
+        }
+      })
+      .catch(function () {
+        if (hint) {
+          hint.textContent = "라이브러리 목록을 불러오지 못했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다.";
+        }
+      });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
