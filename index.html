@@ -32,6 +32,13 @@
     </div>
   </div>
 
+  <!-- 문제 풀이 화면 아래에 상시 노출되는 순위표. 결과 화면에서도 그대로
+       보입니다(퀴즈 화면/결과 화면 전환과 무관하게 항상 최신 순위를 보여줌). -->
+  <div class="bq-leaderboard" id="bq-leaderboard" style="display:none;">
+    <div class="bq-leaderboard-title"><i class="fa-solid fa-ranking-star"></i> 이 라이브러리 순위표</div>
+    <ol class="bq-leaderboard-list" id="bq-leaderboard-list"></ol>
+  </div>
+
   <div class="bq-result" id="bq-result" style="display:none;">
     <i class="fa-solid fa-trophy bq-result-icon"></i>
     <div class="bq-result-title">라운드 완료!</div>
@@ -43,11 +50,6 @@
         <i class="fa-solid fa-floppy-disk"></i> 기록 저장
       </button>
       <span class="bq-save-status" id="bq-save-status"></span>
-    </div>
-
-    <div class="bq-leaderboard" id="bq-leaderboard" style="display:none;">
-      <div class="bq-leaderboard-title"><i class="fa-solid fa-ranking-star"></i> 이 라이브러리 순위표</div>
-      <ol class="bq-leaderboard-list" id="bq-leaderboard-list"></ol>
     </div>
 
     <button class="bq-btn bq-btn-primary" id="bq-restart-btn">

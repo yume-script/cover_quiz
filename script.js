@@ -89,6 +89,7 @@
         els.result.style.display = "none";
         els.quizArea.style.display = "block";
         renderQuestion();
+        loadLeaderboard();
       })
       .catch(function (err) {
         showStatus("문제를 불러오는 중 오류가 발생했습니다: " + err);
@@ -184,7 +185,6 @@
 
     if (!state.appsScriptUrl) {
       els.saveScoreBox.style.display = "none";
-      els.leaderboardBox.style.display = "none";
       return;
     }
 
@@ -196,8 +196,6 @@
     els.saveScoreBtn.appendChild(saveIcon);
     els.saveScoreBtn.appendChild(document.createTextNode(" 기록 저장"));
     els.saveStatus.textContent = "";
-
-    loadLeaderboard();
   }
 
   function saveScore() {
@@ -250,8 +248,24 @@
       });
   }
 
+  function formatTimestamp(iso) {
+    if (!iso) {
+      return "";
+    }
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) {
+      return "";
+    }
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    return (
+      pad(d.getMonth() + 1) + "/" + pad(d.getDate()) + " " +
+      pad(d.getHours()) + ":" + pad(d.getMinutes())
+    );
+  }
+
   function loadLeaderboard() {
     if (!state.appsScriptUrl) {
+      els.leaderboardBox.style.display = "none";
       return;
     }
     var url = state.appsScriptUrl
@@ -269,12 +283,20 @@
         }
         items.forEach(function (item) {
           var li = document.createElement("li");
+
+          var timeSpan = document.createElement("span");
+          timeSpan.className = "bq-leaderboard-time";
+          timeSpan.textContent = formatTimestamp(item.timestamp);
+
           var nameSpan = document.createElement("span");
           nameSpan.className = "bq-leaderboard-name";
           nameSpan.textContent = item.name || "익명";
+
           var scoreSpan = document.createElement("span");
           scoreSpan.className = "bq-leaderboard-score";
           scoreSpan.textContent = item.score + " / " + item.total;
+
+          li.appendChild(timeSpan);
           li.appendChild(nameSpan);
           li.appendChild(scoreSpan);
           els.leaderboardList.appendChild(li);
