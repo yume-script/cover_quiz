@@ -25,9 +25,14 @@ Book Cover Quiz Plugin (id: cover_quiz)
   종료 후 이 URL로 직접(브라우저에서) 점수를 저장/조회합니다. 값이
   비어있으면 script.js가 리더보드 UI 자체를 표시하지 않습니다.
 - `category_tab`: 코어 좌측/상단 "카테고리" 내비게이션에 별도 메뉴 항목을
-  추가합니다 (가이드 문서에는 없지만 stats_dashboard 실제 소스로 확인된
-  계약: title/icon/order). index.html/script.js/style.css로 완전 커스텀
-  풀페이지 UI를 렌더링합니다.
+  추가합니다 (가이드 문서에는 없지만 stats_dashboard/scan_scheduler 실제
+  소스로 확인된 계약: title/icon/order/sessions). index.html/script.js/
+  style.css로 완전 커스텀 풀페이지 UI를 렌더링합니다.
+  sessions: "all"이 반드시 필요합니다 — 이게 없으면 특정 세션(스코프)
+  하나에서만 메뉴가 노출되어, 카테고리별로 독립된 TARGET_LIBRARY_* 설정을
+  둔 의미가 없어집니다. "all"이어야 general/adult/audiobook/video 4개
+  카테고리 어디서든 이 메뉴가 각각 뜨고, 그때마다 db_type이 해당 스코프로
+  넘어와 스코프별 설정이 실제로 분기됩니다.
 - `dashboard_widget`은 정의하지 않습니다. 코어의 대시보드 카드 렌더러는
   각 아이템을 정적인 "도서 카드"로만 그리기 때문에 클릭 인터랙션이 필요한
   퀴즈 게임과는 맞지 않습니다 (random_gallery도 같은 이유로 실제로는
@@ -198,7 +203,8 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     category_tab = {
         "title": "책표지 퀴즈",
         "icon": "fa-solid fa-image-portrait",
-        "order": 92,
+        "order": 51,
+        "sessions": "all",
     }
 
     # ------------------------------------------------------------------
