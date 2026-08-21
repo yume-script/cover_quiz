@@ -31,6 +31,19 @@ docker compose restart bookoasis
 아래 설정값을 입력합니다. 설정 항목들은 기본적으로 접혀 있으니
 "설정 펼치기"를 클릭해서 펼친 뒤 입력하세요.
 
+## 카테고리 전환은 어떻게 감지하나요?
+
+BookOasis 코어가 `get_dashboard_data(db_type, ...)`에 넘겨주는 `db_type`은
+사용자가 카테고리(일반/성인/오디오북/비디오)를 전환해도 바뀌지
+않습니다. 실제 카테고리 전환은 코어가 아니라 kh_viewer의 클라이언트
+사이드 네비게이션이 `document.documentElement`에 심어두는
+`data-library-type` 속성으로 관리됩니다. 그래서 `script.js`가 페이지
+로드시마다 이 속성값을 직접 읽어 `client_scope` 쿼리파라미터로
+서버에 넘기고, 서버는 이 값을 `db_type`보다 우선해서 사용합니다
+(`_get_client_scope_override()`). 퀴즈 화면 부제 아래에 항상
+`db_type: ... → 실제 카테고리: ...` 형태의 작은 진단 텍스트가 표시되어,
+실제로 어떤 값이 쓰이고 있는지 바로 확인할 수 있습니다.
+
 ## 설정 항목
 
 | 키 | 설명 | 기본값 |

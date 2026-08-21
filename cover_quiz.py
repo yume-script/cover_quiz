@@ -54,9 +54,16 @@ video, [[rclone-manager-plugin]](scan_scheduler) 작업에서 확인됨)를 가�
 
 이 플러그인은 카테고리(스코프)마다 완전히 독립된 설정 키를 사용합니다:
 TARGET_LIBRARY_GENERAL / TARGET_LIBRARY_ADULT / TARGET_LIBRARY_AUDIOBOOK /
-TARGET_LIBRARY_VIDEO (target_library_key() 헬퍼로 생성). get_dashboard_data
-가 호출될 때 코어가 넘겨주는 db_type이 "지금 어느 카테고리에서 플러그인이
-열렸는지"를 나타내므로, 그 db_type에 해당하는 설정 키 하나만 읽습니다
+TARGET_LIBRARY_VIDEO (target_library_key() 헬퍼로 생성).
+
+⚠️ 중요: get_dashboard_data가 호출될 때 코어가 넘겨주는 db_type은 실제
+카테고리 전환에 반응하지 않는 것으로 확인되었습니다 — BookOasis의 카테고리
+(보관함) 전환은 코어가 아니라 kh_viewer의 클라이언트 사이드 네비게이션이
+document.documentElement의 data-library-type 속성으로 관리합니다. 그래서
+_build_quiz는 db_type을 그대로 신뢰하지 않고, script.js가 이 속성값을
+읽어 넘겨주는 client_scope 쿼리파라미터(_get_client_scope_override())를
+우선 사용하고, 그 값이 없을 때만 db_type으로 폴백합니다. 이 실제 활성
+스코프(effective_scope)에 해당하는 설정 키 하나만 읽습니다
 (_parse_target_selection). 그래서 "일반" 카테고리에서 플러그인을 열면
 무조건 TARGET_LIBRARY_GENERAL 값만 적용되고, 다른 스코프의 설정이 섞여
 들어올 일이 없습니다.
@@ -289,6 +296,27 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             return flask_request.args.get("list_only") in ("1", "true", "True")
         except Exception:
             return False
+
+    def _get_client_scope_override(self):
+        """코어가 get_dashboard_data(db_type, ...)에 넘겨주는 db_type은
+        카테고리(보관함)를 이동해도 바뀌지 않는 것으로 확인되었습니다 —
+        실제 카테고리 전환은 kh_viewer의 클라이언트 사이드 네비게이션이
+        document.documentElement의 data-library-type 속성으로 관리합니다.
+        그래서 프론트엔드(script.js)가 이 값을 직접 읽어 client_scope
+        쿼리파라미터로 넘겨주고, 여기서는 그 값이 KNOWN_LIBRARY_SCOPES에
+        속하는 유효한 값일 때만 db_type보다 우선해서 사용합니다. 값이
+        없거나 알 수 없는 값이면 None을 반환해 기존 db_type 폴백으로
+        이어집니다.
+        """
+        try:
+            from flask import request as flask_request
+        except Exception:
+            return None
+        try:
+            val = (flask_request.args.get("client_scope") or "").strip()
+        except Exception:
+            return None
+        return val if val in KNOWN_LIBRARY_SCOPES else None
 
     def _parse_target_selection(self, cfg, current_scope):
         """현재 활성 스코프(카테고리)에 해당하는 라이브러리 설정값만 읽습니다.
@@ -535,6 +563,11 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     # 내부 구현: 퀴즈 라운드 생성
     # ------------------------------------------------------------------
     def _build_quiz(self, db_type, limit=10):
+        # 코어가 넘겨주는 db_type은 카테고리(보관함) 전환에 반응하지 않는
+        # 것으로 확인되었으므로, 프론트엔드가 실제 활성 라이브러리 타입을
+        # client_scope로 명시적으로 보내주면 그 값을 최우선으로 사용합니다.
+        effective_scope = self._get_client_scope_override() or db_type
+
         # settings.html은 라이브러리 목록만 필요하고 문제 생성은 필요 없으므로
         # (list_only=1 요청), 무거운 도서 조회/셔플 로직을 완전히 건너뜁니다.
         # 이걸 나누지 않으면 설정 화면을 열 때마다 현재 라이브러리 전체
@@ -574,7 +607,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             }
 
         cfg = self._get_merged_config()
-        target_scope, target_library_id = self._parse_target_selection(cfg, db_type)
+        target_scope, target_library_id = self._parse_target_selection(cfg, effective_scope)
         question_count = self._get_questions_count(cfg, limit)
         choice_count = self._get_choices_count(cfg)
         apps_script_url = (cfg.get("APPS_SCRIPT_URL") or DEFAULT_APPS_SCRIPT_URL).strip()
@@ -588,6 +621,8 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             return {
                 "success": False,
                 "error": "지정된 라이브러리(%s)에 연결할 수 없습니다: %s" % (target_scope, exc),
+                "requested_scope": db_type,
+                "effective_scope": effective_scope,
             }
 
         # 퀴즈 화면에서는 4개 스코프 전체를 훑는 무거운 _list_all_libraries()
@@ -623,7 +658,12 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
                 "[cover_quiz] 도서 목록 조회 실패 (target_scope=%s, library_id=%s)",
                 target_scope, target_library_id,
             )
-            return {"success": False, "error": "도서 목록을 가져오지 못했습니다: %s" % exc}
+            return {
+                "success": False,
+                "error": "도서 목록을 가져오지 못했습니다: %s" % exc,
+                "requested_scope": db_type,
+                "effective_scope": effective_scope,
+            }
 
         # 표지/제목이 유효하고, 제목이 중복되지 않는 도서만 문제 후보 풀에 포함.
         # (같은 제목의 책이 여러 권 있으면 오답 선택지끼리 겹쳐서 문제가
@@ -654,6 +694,8 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
                     "최소 %d권 필요). 라이브러리 설정이나 표지 등록 상태를 확인해주세요."
                 )
                 % (len(pool), choice_count, min_required),
+                "requested_scope": db_type,
+                "effective_scope": effective_scope,
             }
 
         random.shuffle(pool)
@@ -685,4 +727,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
             "total": len(questions),
             "library_name": library_name,
             "apps_script_url": apps_script_url,
+            "requested_scope": db_type,
+            "effective_scope": effective_scope,
+            "target_scope": target_scope,
         }

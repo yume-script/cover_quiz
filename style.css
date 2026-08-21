@@ -29,6 +29,13 @@
   font-size: 0.9rem;
 }
 
+.bq-debug-line {
+  margin: 4px 0 0;
+  font-size: 0.7rem;
+  opacity: 0.5;
+  font-family: monospace;
+}
+
 .bq-score-group {
   display: flex;
   flex-direction: column;

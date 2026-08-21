@@ -21,8 +21,38 @@
     return document.getElementById(id);
   }
 
+  // 실제 "현재 보관함(카테고리)"은 서버가 넘겨주는 db_type이 아니라,
+  // kh_viewer 네비게이션이 document.documentElement에 심어두는
+  // data-library-type 속성이 진짜 값입니다(디버그 라인으로 확인됨:
+  // db_type은 카테고리를 이동해도 바뀌지 않았음). 이 값을 읽어서 서버에
+  // 명시적으로 넘기고, 서버는 이 값을 db_type보다 우선해서 사용합니다.
+  function getActiveLibraryType() {
+    try {
+      var val = document.documentElement.getAttribute("data-library-type");
+      return val ? val.trim() : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function buildDataUrl(extraParams) {
+    var params = [];
+    var activeType = getActiveLibraryType();
+    if (activeType) {
+      params.push("client_scope=" + encodeURIComponent(activeType));
+    }
+    if (extraParams) {
+      params.push(extraParams);
+    }
+    if (!params.length) {
+      return DATA_ENDPOINT;
+    }
+    return DATA_ENDPOINT + (DATA_ENDPOINT.indexOf("?") === -1 ? "?" : "&") + params.join("&");
+  }
+
   function cacheEls() {
     els.subtitle = qs("bq-subtitle");
+    els.debugLine = qs("bq-debug-line");
     els.status = qs("bq-status");
     els.quizArea = qs("bq-quiz-area");
     els.result = qs("bq-result");
@@ -66,11 +96,22 @@
   function loadQuiz() {
     showStatus("문제를 불러오는 중...");
 
-    fetch(DATA_ENDPOINT, { credentials: "same-origin" })
+    fetch(buildDataUrl(), { credentials: "same-origin" })
       .then(function (res) {
         return res.json();
       })
       .then(function (data) {
+        if (data && data.requested_scope && els.debugLine) {
+          var scopeMsg = "db_type: " + data.requested_scope;
+          if (data.effective_scope && data.effective_scope !== data.requested_scope) {
+            scopeMsg += " → 실제 카테고리: " + data.effective_scope;
+          }
+          if (data.target_scope && data.target_scope !== data.effective_scope) {
+            scopeMsg += " → 조회 스코프: " + data.target_scope;
+          }
+          els.debugLine.textContent = scopeMsg;
+          els.debugLine.style.display = "block";
+        }
         if (!data || data.success !== true || !Array.isArray(data.items) || data.items.length === 0) {
           var msg = (data && data.error) ? data.error : "문제를 불러오지 못했습니다.";
           showStatus(msg);
