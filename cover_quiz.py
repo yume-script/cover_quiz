@@ -33,7 +33,7 @@ Book Cover Quiz Plugin (id: cover_quiz)
   퀴즈 게임과는 맞지 않습니다 (random_gallery도 같은 이유로 실제로는
   dashboard_widget을 주석 처리해두고 category_tab만 사용합니다).
 
-라이브러리 선택 방식 (스코프 + 개별 라이브러리)
+라이브러리 선택 방식 (카테고리별 독립 설정)
 ------------------------------------------------
 BookOasis는 4개의 고정 DB 스코프(media_ 접두사 + general/adult/audiobook/
 video, [[rclone-manager-plugin]](scan_scheduler) 작업에서 확인됨)를 가지고
@@ -41,17 +41,20 @@ video, [[rclone-manager-plugin]](scan_scheduler) 작업에서 확인됨)를 가�
 "텍스트 소설"/"텍스트 일반"/"텍스트 무협")가 존재합니다. `books` 테이블의
 `library_id` 컬럼이 이 개별 라이브러리를 구분합니다.
 
-그래서 설정값 TARGET_DB_TYPE에는 "스코프:라이브러리ID" 형식의 복합값
-(예: "general:12")을 저장합니다. 설정 화면에서는 이 값을 사람이 읽을 수
-있는 실제 라이브러리명으로 고른 뒤 저장할 수 있도록, settings.html에
-내장된 스크립트가 이 파일의 get_dashboard_data() 응답(list_only=1
-요청)에 포함된 library_options를 읽어와 스코프별로 그룹핑한 드롭다운을
-동적으로 채웁니다 (정적 HTML만으로는 서버마다 다른 실제 라이브러리
-목록을 미리 알 수 없기 때문입니다).
+이 플러그인은 카테고리(스코프)마다 완전히 독립된 설정 키를 사용합니다:
+TARGET_LIBRARY_GENERAL / TARGET_LIBRARY_ADULT / TARGET_LIBRARY_AUDIOBOOK /
+TARGET_LIBRARY_VIDEO (target_library_key() 헬퍼로 생성). get_dashboard_data
+가 호출될 때 코어가 넘겨주는 db_type이 "지금 어느 카테고리에서 플러그인이
+열렸는지"를 나타내므로, 그 db_type에 해당하는 설정 키 하나만 읽습니다
+(_parse_target_selection). 그래서 "일반" 카테고리에서 플러그인을 열면
+무조건 TARGET_LIBRARY_GENERAL 값만 적용되고, 다른 스코프의 설정이 섞여
+들어올 일이 없습니다.
 
-값이 비어 있으면 코어가 넘겨준 "현재 카테고리의 라이브러리"(db_type)를
-그대로 사용하고, library_id 필터 없이 그 스코프 전체 도서를 대상으로
-합니다.
+각 설정값이 비어 있으면 그 스코프의 특정 라이브러리로 좁히지 않고 스코프
+전체 도서를 대상으로 합니다. 설정 화면(settings.html)에는 4개 스코프용
+드롭다운이 각각 따로 있고, 각 드롭다운은 그 스코프에 속한 라이브러리만
+보여줍니다(get_dashboard_data() 응답의 list_only=1 모드가 반환하는
+library_options를 스코프별로 필터링해서 채움).
 
 표지 이미지 URL 해석
 ----------------------
@@ -92,6 +95,14 @@ DEFAULT_APPS_SCRIPT_URL = (
 # (서버마다 실제로 어떤 라이브러리가 있는지 다르기 때문에 하드코딩할 수 없음).
 KNOWN_LIBRARY_SCOPES = ["general", "adult", "audiobook", "video"]
 
+# 설정 화면에 표시할 스코프별 한글 라벨.
+SCOPE_LABELS = {
+    "general": "일반 (general)",
+    "adult": "성인 (adult)",
+    "audiobook": "오디오북 (audiobook)",
+    "video": "비디오 (video)",
+}
+
 # 스코프 하나(get_db_gateway 연결 + 테이블/컬럼 조회)를 조사하는 데 허용할
 # 최대 시간(초). 존재하지 않거나 응답이 없는 스코프 때문에 설정 화면
 # 전체가 무한정 멈추는 것을 막기 위한 안전장치입니다. 4개 스코프는
@@ -115,19 +126,32 @@ def get_row_val(row, key, default=None):
         return default
 
 
+def target_library_key(scope):
+    """스코프별 라이브러리 선택값을 저장하는 설정 키 이름.
+    예: general -> "TARGET_LIBRARY_GENERAL"
+    """
+    return "TARGET_LIBRARY_%s" % str(scope).upper()
+
+
 class CoverQuizMetadataProvider(BaseMetadataProvider):
     id = "cover_quiz"
     name = "책표지 퀴즈"
     is_searchable = False
 
+    # 스코프(카테고리)별로 완전히 독립된 설정 키를 둡니다. "일반" 카테고리에서
+    # 플러그인을 열면 TARGET_LIBRARY_GENERAL만, "성인" 카테고리에서 열면
+    # TARGET_LIBRARY_ADULT만 사용되므로, 카테고리 간에 서로 다른 스코프의
+    # 라이브러리가 섞여 보이는 일이 없습니다.
     config_schema = [
         {
-            "key": "TARGET_DB_TYPE",
-            "label": "퀴즈에 사용할 라이브러리 (설정 화면에서 드롭다운으로 선택)",
+            "key": target_library_key(scope),
+            "label": "%s 카테고리에서 사용할 라이브러리 (설정 화면 드롭다운으로 선택)" % SCOPE_LABELS[scope],
             "type": "text",
             "required": False,
             "default": "",
-        },
+        }
+        for scope in KNOWN_LIBRARY_SCOPES
+    ] + [
         {
             "key": "QUESTIONS_PER_ROUND",
             "label": "한 라운드 문제 수",
@@ -174,8 +198,7 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     category_tab = {
         "title": "책표지 퀴즈",
         "icon": "fa-solid fa-image-portrait",
-        "order": 59,
-        "sessions": ["adult"],  # 선택 사항. 아래 "노출 세션 지정" 참고
+        "order": 92,
     }
 
     # ------------------------------------------------------------------
@@ -215,20 +238,15 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         except Exception:
             return False
 
-    def _parse_target_selection(self, cfg, fallback_db_type):
-        """설정값 TARGET_DB_TYPE("스코프:라이브러리ID" 또는 빈 값)을 파싱합니다.
-        반환값: (사용할 스코프, 라이브러리ID 또는 None)
+    def _parse_target_selection(self, cfg, current_scope):
+        """현재 활성 스코프(카테고리)에 해당하는 라이브러리 설정값만 읽습니다.
+        예: current_scope="general"이면 TARGET_LIBRARY_GENERAL 키만 봅니다.
+        다른 스코프의 설정은 절대 섞이지 않습니다 — "일반" 카테고리에서 열면
+        무조건 일반 스코프의 라이브러리(또는 전체)만 대상이 됩니다.
+        반환값: (사용할 스코프 = current_scope 그대로, 라이브러리ID 또는 None)
         """
-        raw = (cfg.get("TARGET_DB_TYPE") or "").strip()
-        if not raw:
-            return fallback_db_type, None
-        if ":" in raw:
-            scope, _, lib_id = raw.partition(":")
-            scope = scope.strip()
-            lib_id = lib_id.strip()
-            return (scope or fallback_db_type), (lib_id or None)
-        # 콜론 없이 스코프 식별자만 저장된 경우(과거 버전 호환)에 대한 폴백
-        return raw, None
+        raw = (cfg.get(target_library_key(current_scope)) or "").strip()
+        return current_scope, (raw or None)
 
     def _get_questions_count(self, cfg, limit):
         try:

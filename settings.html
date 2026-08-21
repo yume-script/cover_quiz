@@ -1,22 +1,53 @@
 <div class="bq-settings-panel">
   <div class="bq-settings-title">책표지 퀴즈 설정</div>
-  <div class="bq-settings-desc">표지 이미지를 보고 책 제목을 맞히는 객관식 퀴즈 게임 설정입니다.</div>
+  <div class="bq-settings-desc">표지 이미지를 보고 책 제목을 맞히는 객관식 퀴즈 게임 설정입니다. 카테고리(일반/성인/오디오북/비디오)별로 사용할 라이브러리를 각각 따로 지정할 수 있습니다 — 예를 들어 "일반" 카테고리에서 플러그인을 열면 아래 "일반" 항목에 지정한 라이브러리만 퀴즈에 사용됩니다.</div>
 
   <details class="bq-settings-section">
     <summary>설정 펼치기 (클릭)</summary>
     <div class="bq-settings-body">
 
-      <!-- 대상 라이브러리 -->
-      <div class="bq-settings-field">
-        <label for="bq-target-db-type">퀴즈에 사용할 라이브러리</label>
+      <!-- 카테고리(스코프)별 라이브러리 선택 -->
+      <div class="bq-settings-field" data-scope-field="general">
+        <label for="bq-target-general">일반 (general) 카테고리</label>
         <div class="bq-input-container">
-          <select id="bq-target-db-type" name="TARGET_DB_TYPE">
-            <option value="">(현재 카테고리의 라이브러리 사용)</option>
+          <select id="bq-target-general" name="TARGET_LIBRARY_GENERAL">
+            <option value="">(스코프 전체 라이브러리 사용)</option>
           </select>
-          <p class="hint" id="bq-target-hint">라이브러리 목록을 불러오는 중...</p>
-          <pre id="bq-target-debug" class="bq-debug-box" style="display:none;"></pre>
+          <p class="hint" data-scope-hint="general">라이브러리 목록을 불러오는 중...</p>
         </div>
       </div>
+
+      <div class="bq-settings-field" data-scope-field="adult">
+        <label for="bq-target-adult">성인 (adult) 카테고리</label>
+        <div class="bq-input-container">
+          <select id="bq-target-adult" name="TARGET_LIBRARY_ADULT">
+            <option value="">(스코프 전체 라이브러리 사용)</option>
+          </select>
+          <p class="hint" data-scope-hint="adult">라이브러리 목록을 불러오는 중...</p>
+        </div>
+      </div>
+
+      <div class="bq-settings-field" data-scope-field="audiobook">
+        <label for="bq-target-audiobook">오디오북 (audiobook) 카테고리</label>
+        <div class="bq-input-container">
+          <select id="bq-target-audiobook" name="TARGET_LIBRARY_AUDIOBOOK">
+            <option value="">(스코프 전체 라이브러리 사용)</option>
+          </select>
+          <p class="hint" data-scope-hint="audiobook">라이브러리 목록을 불러오는 중...</p>
+        </div>
+      </div>
+
+      <div class="bq-settings-field" data-scope-field="video">
+        <label for="bq-target-video">비디오 (video) 카테고리</label>
+        <div class="bq-input-container">
+          <select id="bq-target-video" name="TARGET_LIBRARY_VIDEO">
+            <option value="">(스코프 전체 라이브러리 사용)</option>
+          </select>
+          <p class="hint" data-scope-hint="video">라이브러리 목록을 불러오는 중...</p>
+        </div>
+      </div>
+
+      <pre id="bq-target-debug" class="bq-debug-box" style="display:none;"></pre>
 
       <!-- 문제 수 -->
       <div class="bq-settings-field">
@@ -55,8 +86,11 @@
 
   // cover_quiz.py의 get_dashboard_data()가 반환하는 공통 데이터 엔드포인트.
   // 퀴즈 화면(script.js)과 동일한 엔드포인트를 재사용하되, 여기서는
-  // 응답에 항상 포함되는 library_options 필드만 사용합니다.
+  // 응답에 항상 포함되는 library_options 필드만 사용합니다. list_only=1을
+  // 붙이면 무거운 퀴즈 생성 로직 없이 4개 스코프의 라이브러리 목록만
+  // 빠르게 돌려줍니다.
   var DATA_ENDPOINT = "/api/media/dashboard/widgets/cover_quiz/data?list_only=1";
+  var SCOPES = ["general", "adult", "audiobook", "video"];
 
   function renderDebug(debug) {
     var box = document.getElementById("bq-target-debug");
@@ -72,15 +106,19 @@
   }
 
   function init() {
-    var select = document.getElementById("bq-target-db-type");
-    var hint = document.getElementById("bq-target-hint");
-    if (!select) {
-      return;
-    }
+    var selects = {};
+    var hints = {};
+    var previousValues = {};
 
-    // 코어가 페이지 로드시 저장된 값을 select.value로 미리 채워둔 경우를
-    // 대비해, 옵션을 새로 채우기 전에 현재 값을 기억해뒀다가 복원합니다.
-    var previousValue = select.value;
+    SCOPES.forEach(function (scope) {
+      selects[scope] = document.getElementById("bq-target-" + scope);
+      hints[scope] = document.querySelector('[data-scope-hint="' + scope + '"]');
+      if (selects[scope]) {
+        // 코어가 페이지 로드시 저장된 값을 select.value로 미리 채워둔 경우를
+        // 대비해, 옵션을 새로 채우기 전에 현재 값을 기억해뒀다가 복원합니다.
+        previousValues[scope] = selects[scope].value;
+      }
+    });
 
     // 서버가 아예 응답을 못 주는 상황(스코프 DB 연결이 물고 늘어지는 등)에도
     // 화면이 "불러오는 중..."에 무한정 멈춰있지 않도록 10초 타임아웃을 겁니다.
@@ -105,56 +143,59 @@
       })
       .then(function (data) {
         var options = (data && data.library_options) || [];
-        if (!options.length) {
-          if (hint) {
-            hint.textContent = "라이브러리 목록을 찾지 못했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다. 아래 진단 정보를 개발자에게 전달해주세요.";
-          }
-          renderDebug(data && data.library_debug);
-          return;
-        }
 
-        var groups = {};
-        var order = [];
+        var byScope = {};
         options.forEach(function (opt) {
-          var scope = opt.scope || "기타";
-          if (!groups[scope]) {
-            groups[scope] = [];
-            order.push(scope);
+          var scope = opt.scope || "";
+          if (!byScope[scope]) {
+            byScope[scope] = [];
           }
-          groups[scope].push(opt);
+          byScope[scope].push(opt);
         });
 
-        order.forEach(function (scope) {
-          var optgroup = document.createElement("optgroup");
-          optgroup.label = scope;
-          groups[scope].forEach(function (opt) {
+        SCOPES.forEach(function (scope) {
+          var select = selects[scope];
+          var hint = hints[scope];
+          if (!select) {
+            return;
+          }
+          var scopeOptions = byScope[scope] || [];
+          if (!scopeOptions.length) {
+            if (hint) {
+              hint.textContent = "이 카테고리에서 라이브러리 목록을 찾지 못했습니다. \"(스코프 전체 라이브러리 사용)\"만 사용 가능합니다.";
+            }
+            return;
+          }
+          scopeOptions.forEach(function (opt) {
             var el = document.createElement("option");
-            el.value = opt.value;
+            el.value = opt.library_id;
             el.textContent = opt.name;
-            optgroup.appendChild(el);
+            select.appendChild(el);
           });
-          select.appendChild(optgroup);
+          if (previousValues[scope]) {
+            select.value = previousValues[scope];
+          }
+          if (hint) {
+            hint.textContent = "이 카테고리에서 퀴즈에 사용할 라이브러리를 선택하세요. \"(스코프 전체 라이브러리 사용)\"을 선택하면 해당 카테고리의 모든 라이브러리를 대상으로 합니다.";
+          }
         });
 
-        if (previousValue) {
-          select.value = previousValue;
-        }
-
-        if (hint) {
-          hint.textContent = "특정 라이브러리의 표지만 계속 사용하고 싶을 때 선택하세요. \"(현재 카테고리의 라이브러리 사용)\"을 선택하면 카테고리 메뉴를 열었을 때의 현재 라이브러리를 사용합니다.";
+        if (!options.length) {
+          renderDebug(data && data.library_debug);
         }
       })
       .catch(function (err) {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
-        if (hint) {
-          if (err && err.name === "AbortError") {
-            hint.textContent = "라이브러리 목록 조회가 10초 안에 끝나지 않아 중단했습니다. \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다. 서버 로그에서 [cover_quiz] 태그를 확인해주세요.";
-          } else {
-            hint.textContent = "라이브러리 목록을 불러오지 못했습니다 (" + err + "). \"(현재 카테고리의 라이브러리 사용)\"만 사용 가능합니다.";
+        var msg = (err && err.name === "AbortError")
+          ? "라이브러리 목록 조회가 10초 안에 끝나지 않아 중단했습니다."
+          : "라이브러리 목록을 불러오지 못했습니다 (" + err + ").";
+        SCOPES.forEach(function (scope) {
+          if (hints[scope]) {
+            hints[scope].textContent = msg + " \"(스코프 전체 라이브러리 사용)\"만 사용 가능합니다.";
           }
-        }
+        });
       });
   }
 
