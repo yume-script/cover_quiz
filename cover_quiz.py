@@ -253,16 +253,26 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         없으면 그 키는 빠집니다. 이렇게 하면 "일반" 카테고리에서 설정을
         저장했는데 "성인" 카테고리에서 퀴즈를 열 때 그 값이 안 보이는
         문제를 저장 위치와 무관하게 방지할 수 있습니다.
+
+        _list_all_libraries()와 마찬가지로 4개 스코프를 병렬로 조회하고
+        스코프당 SCOPE_TIMEOUT_SEC 제한을 둡니다 — get_plugin_config가
+        스코프별 DB 연결을 거치는 구현이라면, 순차 조회 시 get_db_gateway
+        에서 겪었던 것과 같은 지연이 재발할 수 있기 때문입니다.
         """
         merged = {}
-        for scope in KNOWN_LIBRARY_SCOPES:
-            try:
-                cfg = self._get_config(scope)
-            except Exception:
-                continue
-            for key, val in (cfg or {}).items():
-                if key not in merged and val not in (None, ""):
-                    merged[key] = val
+        executor = ThreadPoolExecutor(max_workers=len(KNOWN_LIBRARY_SCOPES))
+        try:
+            futures = {executor.submit(self._get_config, scope): scope for scope in KNOWN_LIBRARY_SCOPES}
+            for future in futures:
+                try:
+                    cfg = future.result(timeout=SCOPE_TIMEOUT_SEC)
+                except Exception:
+                    continue
+                for key, val in (cfg or {}).items():
+                    if key not in merged and val not in (None, ""):
+                        merged[key] = val
+        finally:
+            executor.shutdown(wait=False)
         return merged
 
     def _is_list_only_request(self):
@@ -530,8 +540,26 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         # 이걸 나누지 않으면 설정 화면을 열 때마다 현재 라이브러리 전체
         # 도서를 조회하는 무거운 쿼리가 함께 실행돼서 체감상 매우 느려집니다.
         if self._is_list_only_request():
-            library_options, library_debug = self._list_all_libraries()
-            merged_cfg = self._get_merged_config()
+            # _list_all_libraries()와 _get_merged_config()는 각각 내부적으로
+            # 4개 스코프를 병렬 조회하지만, 이 둘을 순차로 실행하면 최악의
+            # 경우 SCOPE_TIMEOUT_SEC이 두 번(최대 약 10초) 걸릴 수 있어
+            # 클라이언트 쪽 10초 타임아웃에 근접합니다. 두 조회 자체를
+            # 동시에 실행해서 전체 소요 시간을 한 번의 타임아웃 수준으로
+            # 줄입니다.
+            list_only_executor = ThreadPoolExecutor(max_workers=2)
+            try:
+                libs_future = list_only_executor.submit(self._list_all_libraries)
+                cfg_future = list_only_executor.submit(self._get_merged_config)
+                try:
+                    library_options, library_debug = libs_future.result(timeout=SCOPE_TIMEOUT_SEC + 2)
+                except FutureTimeoutError:
+                    library_options, library_debug = [], [{"error": "라이브러리 목록 조회 전체 타임아웃"}]
+                try:
+                    merged_cfg = cfg_future.result(timeout=SCOPE_TIMEOUT_SEC + 2)
+                except FutureTimeoutError:
+                    merged_cfg = {}
+            finally:
+                list_only_executor.shutdown(wait=False)
             current_targets = {
                 scope: (merged_cfg.get(target_library_key(scope)) or "")
                 for scope in KNOWN_LIBRARY_SCOPES
