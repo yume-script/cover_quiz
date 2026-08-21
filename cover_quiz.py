@@ -16,7 +16,13 @@ Book Cover Quiz Plugin (id: cover_quiz)
     {'success': False, 'error': '...'}
     (요청 querystring에 list_only=1이 붙은 경우, settings.html 전용)
     {'success': True, 'items': [], 'total': 0,
-     'library_options': [...], 'library_debug': [...]}
+     'library_options': [...], 'library_debug': [...],
+     'current_targets': {'general': '12', 'adult': '', ...}}
+  current_targets는 스코프별로 실제 저장된 TARGET_LIBRARY_* 값입니다.
+  settings.html의 드롭다운은 옵션을 다 채운 뒤 이 값으로 명시적으로
+  select.value를 설정합니다 — 코어가 페이지 로드시 채워둔 값을 DOM에서
+  읽으려 하면, 그 시점엔 아직 옵션이 없어 브라우저가 값을 조용히
+  무시하고 빈 값으로 되돌리는 문제가 있었기 때문입니다.
   두 모드를 분리한 이유: 설정 화면은 라이브러리 드롭다운만 필요한데,
   일반 퀴즈 생성 로직(현재 라이브러리 전체 도서 조회+셔플)까지 매번 함께
   실행되면 설정 화면을 열 때마다 불필요하게 느려지기 때문입니다.
@@ -60,6 +66,16 @@ TARGET_LIBRARY_VIDEO (target_library_key() 헬퍼로 생성). get_dashboard_data
 드롭다운이 각각 따로 있고, 각 드롭다운은 그 스코프에 속한 라이브러리만
 보여줍니다(get_dashboard_data() 응답의 list_only=1 모드가 반환하는
 library_options를 스코프별로 필터링해서 채움).
+
+설정 저장 위치에 대한 방어적 설계: 이 플러그인의 설정 화면(전역
+"환경설정 > 플러그인 설정")이 실제로 어느 db_type 컨텍스트로 값을
+저장하는지 코어 소스를 직접 확인할 수 없어 확신할 수 없습니다. 만약
+저장이 "설정 화면을 열었을 때의 현재 카테고리" 기준으로 이뤄진다면,
+예를 들어 "일반" 카테고리에서 설정을 열어 저장한 값이 general의 config
+블록에만 기록되고 adult/audiobook/video의 config 블록에는 반영되지 않을
+수 있습니다. 이를 대비해 _get_merged_config()가 4개 스코프의 config를
+모두 읽어 병합하므로, 값이 어느 블록에 저장돼 있든 정상적으로 찾아
+사용합니다.
 
 표지 이미지 URL 해석
 ----------------------
@@ -228,6 +244,26 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
     # ------------------------------------------------------------------
     def _get_config(self, db_type):
         return self.get_plugin_config(db_type, default={}) or {}
+
+    def _get_merged_config(self):
+        """설정 저장이 실제로 어느 스코프의 config에 기록되는지(설정 화면을
+        연 카테고리 컨텍스트에 따라 달라질 수 있음) 확신할 수 없으므로,
+        4개 스코프의 config를 모두 읽어 병합합니다. 값이 있는 스코프의
+        것을 사용하고(먼저 발견되는 스코프 우선), 어느 스코프에도 값이
+        없으면 그 키는 빠집니다. 이렇게 하면 "일반" 카테고리에서 설정을
+        저장했는데 "성인" 카테고리에서 퀴즈를 열 때 그 값이 안 보이는
+        문제를 저장 위치와 무관하게 방지할 수 있습니다.
+        """
+        merged = {}
+        for scope in KNOWN_LIBRARY_SCOPES:
+            try:
+                cfg = self._get_config(scope)
+            except Exception:
+                continue
+            for key, val in (cfg or {}).items():
+                if key not in merged and val not in (None, ""):
+                    merged[key] = val
+        return merged
 
     def _is_list_only_request(self):
         """설정 화면(settings.html)은 라이브러리 목록만 필요하고 문제 생성은
@@ -495,15 +531,21 @@ class CoverQuizMetadataProvider(BaseMetadataProvider):
         # 도서를 조회하는 무거운 쿼리가 함께 실행돼서 체감상 매우 느려집니다.
         if self._is_list_only_request():
             library_options, library_debug = self._list_all_libraries()
+            merged_cfg = self._get_merged_config()
+            current_targets = {
+                scope: (merged_cfg.get(target_library_key(scope)) or "")
+                for scope in KNOWN_LIBRARY_SCOPES
+            }
             return {
                 "success": True,
                 "items": [],
                 "total": 0,
                 "library_options": library_options,
                 "library_debug": library_debug,
+                "current_targets": current_targets,
             }
 
-        cfg = self._get_config(db_type)
+        cfg = self._get_merged_config()
         target_scope, target_library_id = self._parse_target_selection(cfg, db_type)
         question_count = self._get_questions_count(cfg, limit)
         choice_count = self._get_choices_count(cfg)
